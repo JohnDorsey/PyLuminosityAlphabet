@@ -1,3 +1,11 @@
+"""
+
+PyLuminosityAlphabet.py by John Dorsey.
+
+"""
+
+
+
 
 import pathlib
 from collections import namedtuple
@@ -10,13 +18,14 @@ KEYBOARD_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 KEYBOARD_SYMBOLS = " `~!@#$%^&*()-_=+[{]}\\|\\;:'\",<.>/?"
 KEYBOARD_CHARS = KEYBOARD_DIGITS + KEYBOARD_LETTERS + KEYBOARD_SYMBOLS
 
-SPECIALS_BASH = "$`*\"\\"
+SPECIALS_BASH = ["$", "`", "*", "\"", "\\"]
 
 DEFAULT_FONT_PATH_STR = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
 
 
 TextElement = namedtuple("TextElement",["font_name","font_size","antialias","text","image","image_width","image_height","luminosity"])
+
 
 def get_color_luminosity_f(color):
     assert len(color) >= 3
@@ -28,6 +37,7 @@ def get_color_luminosity_f(color):
 def get_surface_luminosity_f(surface):
     colorGen = (surface.get_at((x,y)) for y in range(surface.get_height()) for x in range(surface.get_width()))
     return sum(get_color_luminosity_f(color) for color in colorGen)
+    
     
 def path_from_str(path_str):
     font_path = pathlib.Path(font_path_text)
