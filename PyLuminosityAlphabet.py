@@ -86,19 +86,51 @@ def filtered_for_uniform_density(src_gen, key_fun, segment_count):
     
 
 class FontProfile:
-    def __init__(self, name, size, antialias):
+    def __init__(self, name, size, antialias, force_monospace, **other_kwargs):
+        if name is None:
+            name = DEFAULT_FONT_PATH_STR
         self._name, self._size = name, size
         self.font = make_font(name, size)
-        self._antialias = antialias
+        self._antialias, self._force_monospace = antialias, force_monospace
+        
+        self._monospace_width = None
+        if self._force_monospace:
+            self.prepare_monospace_filtration(**other_kwargs)
+            
+        
+    def __repr__(self):
+        return "FontProfile(name={}, size={}, antialias={}, force_monospace={})".format(self._name, self._size, self._antialias, self._force_monospace)
+        
+        
+    def prepare_monospace_filtration(self, test_chars=Characters.KEYBOARD_CHARS):
+        #charPictureSizes = [(element.image_width, element.image_height) for element in self.gen_elements(include=test_chars)]
+        test_elem_gen = self.gen_elements(include=test_chars, ignore_force_monospace=True)
+        element_list = self.filtered_elem_list_for_consistent_width(test_elem_gen)
+        if len(element_list) != len(test_chars):
+            print("FontProfile.prepare_monospace_filtration: not monospace! After filtering test_chars for chars of the median width, its size shrank from {} to {}.".format(len(test_chars), len(element_list)))
+        self._monospace_width = element_list[0].image_width
+        
+        
+    def filtered_elem_list_for_consistent_width(self, element_list):
+        if iter(element_list) is iter(element_list):
+            print("FontProfile.filtered_elem_list_for_consistent_width: warning: received a generator! it will be consumed.")
+            element_list = [item for item in element_list]
+        if len(element_list) == 0:
+            raise ValueError("element_list cannot be empty!")
+        median_width = sorted(elem.image_width for elem in element_list)[len(element_list)//2]
+        result = [item for item in element_list if item.image_width == median_width]
+        return result
+        
         
     def get_char_picture(self, char):
         result = self.font.render(char, self._antialias, (255,255,255), (0,0,0))
         return result
         
+        
     def get_char_element(self, char):        
         picture = self.get_char_picture(char)
-        return TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_luminosity_f(picture)) 
-    
+        result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_luminosity_f(picture)) 
+        return result
     """
     def make_char_picture(self, char):
         self.char_pictures[char] = self.get_char_picture(char)
@@ -114,26 +146,35 @@ class FontProfile:
             yield char, self.get_char_picture(
             """
             
-    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIALS_BASH):
+    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIALS_BASH, ignore_force_monospace=False):
         """
         include may be a generator.
         exclude should be a set for best performance.
         """
         for char in iter_include_exclude(include, exclude):
             newElement = self.get_char_element(char)
+            if (not ignore_force_monospace) and self._force_monospace:
+                if newElement.image_width != self._monospace_width:
+                    continue
             yield newElement
             
-    def get_alphabet_elements(self, force_monospace=False, **other_kwargs):
-        result = [item for item in self.gen_elements(**other_kwargs)]
-        #filter for monospace rulebreakers:
-        if force_monospace:
-            median_width = sorted(elem.image_width for elem in result)[len(result)//2]
-            result = [item for item in result if item.image_width == median_width]
-        result = sorted(result, key=(lambda item: item.luminosity))
+            
+    def get_alphabet_elements(self, quick_force_monospace=False, **other_kwargs):
+        elemGen = self.gen_elements(**other_kwargs)
+        result = [item for item in elemGen]
+        
+        if quick_force_monospace:
+            if self._force_monospace:
+                print("{}: warning: using quick_force_monospace in combination with force_monospace is slow.".format(repr(self)))
+            result = self.filtered_elem_list_for_consistent_width(result)
+            
+        result.sort(key=(lambda item: item.luminosity))
         return result
+        
         
     def get_alphabet_chars(self, **kwargs):
         return [elem.text for elem in self.get_alphabet_elements(**kwargs)]
+        
         
     def get_alphabet_str(self, **kwargs):
         return "".join(self.get_alphabet_chars(**kwargs))
