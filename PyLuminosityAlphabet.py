@@ -21,7 +21,7 @@ DEFAULT_FONT_PATH_STR = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
 
 
-TextElement = namedtuple("TextElement",["font_name","font_size","antialias","text","image","image_width","image_height","luminosity"])
+TextElement = namedtuple("TextElement",["font_name", "font_size", "antialias", "text", "image", "image_width", "image_height", "absolute_luminosity", "relative_luminosity"])
 
 
 
@@ -36,9 +36,14 @@ def get_color_luminosity_f(color):
     color = color[:3]
     return float(sum(color))/(3.0*256.0)
     
-def get_surface_luminosity_f(surface):
+def get_surface_absolute_luminosity_f(surface):
     colorGen = (surface.get_at((x,y)) for y in range(surface.get_height()) for x in range(surface.get_width()))
     return sum(get_color_luminosity_f(color) for color in colorGen)
+    
+def get_surface_relative_luminosity_f(surface):
+    abs_lum_f = get_surface_absolute_luminosity_f(surface)
+    area = surface.get_height() * surface.get_width()
+    return abs_lum_f/float(area)
     
     
 def path_from_str(path_str):
@@ -129,7 +134,7 @@ class FontProfile:
         
     def get_char_element(self, char):        
         picture = self.get_char_picture(char)
-        result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_luminosity_f(picture)) 
+        result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_f(picture), get_surface_relative_luminosity_f(picture)) 
         return result
     """
     def make_char_picture(self, char):
@@ -159,16 +164,23 @@ class FontProfile:
             yield newElement
             
             
-    def get_alphabet_elements(self, quick_force_monospace=False, **other_kwargs):
+    def get_alphabet_elements(self, quick_force_monospace=False, max_segment_count=None, **other_kwargs):
+        """
+        quick_force_monospace - after generating, take the median of all element widths to be the intended one and discard elements with other widths.
+        max_segment_count - if set, this filters elements for uniform density, dividing the space between 0.0 inclusive and 1.0 exclusive into segments and keeping a maximum of one character per segment. Good for reducing memory usage when processing thousands or millions of characters.
+        """
         elemGen = self.gen_elements(**other_kwargs)
-        result = [item for item in elemGen]
+        if max_segment_count is not None:
+            result = filtered_for_uniform_density(elemGen, (lambda inputElem: inputElem.relative_luminosity), max_segment_count)
+        else:
+            result = [item for item in elemGen]
         
         if quick_force_monospace:
             if self._force_monospace:
                 print("{}: warning: using quick_force_monospace in combination with force_monospace is slow.".format(repr(self)))
             result = self.filtered_elem_list_for_consistent_width(result)
             
-        result.sort(key=(lambda item: item.luminosity))
+        result.sort(key=(lambda item: item.absolute_luminosity))
         return result
         
         
