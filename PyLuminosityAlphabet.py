@@ -127,13 +127,13 @@ class FontProfile:
         return result
         
         
-    def get_char_picture(self, char):
+    def get_text_picture(self, char):
         result = self.font.render(char, self._antialias, (255,255,255), (0,0,0))
         return result
         
         
-    def get_char_element(self, char):        
-        picture = self.get_char_picture(char)
+    def get_char_element(self, char):
+        picture = self.get_text_picture(char)
         result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_f(picture), get_surface_relative_luminosity_f(picture)) 
         return result
     """
@@ -183,9 +183,44 @@ class FontProfile:
         result.sort(key=(lambda item: item.absolute_luminosity))
         return result
         
+    
+    def graphical_preview(self, text):
+        assert isinstance(text, str)
+        lineLength = int((len(text)+1)**0.5)
+        lineCount = len(text)//lineLength + (1 if len(text)%lineLength>0 else 0)
+        assert (lineCount-1)*lineLength < len(text)
+        wrappingText = "\n".join(text[i*lineLength:(i+1)*lineLength] for i in range(lineCount))
+        print(wrappingText)
+        surfacesToShow = [self.get_text_picture(line) for line in wrappingText.split("\n")]
+        lineHeightSum = sum(lineSurface.get_height() for lineSurface in surfacesToShow)
+        lineWidthMax = max(lineSurface.get_width() for lineSurface in surfacesToShow)
+        try:
+            screen = pygame.display.set_mode((lineWidthMax, lineHeightSum))
+            assert isinstance(screen, pygame.Surface)
+            y = 0
+            for lineIndex, lineSurface in enumerate(surfacesToShow):
+                screen.blit(lineSurface, (0, y))
+                y += lineSurface.get_height()
+            while True:
+                pygame.display.flip()
+                for event in pygame.event.get():
+                    #print(event)
+                    #print(dir(event))
+                    #print(event.type)
+                    if event.type in [pygame.K_ESCAPE, pygame.KSCAN_ESCAPE, pygame.QUIT]:
+                        break
+        finally:
+            pygame.display.quit()
+        
         
     def get_alphabet_chars(self, **kwargs):
         return [elem.text for elem in self.get_alphabet_elements(**kwargs)]
+        
+    def get_alphabet_ords(self, **kwargs):
+        return [ord(char) for char in self.get_alphabet_chars(**kwargs)]
+        
+    def get_alphabet_ords_and_chars(self, **kwargs):
+        return [(ord(char), char) for char in self.get_alphabet_chars(**kwargs)]
         
         
     def get_alphabet_str(self, **kwargs):
@@ -289,8 +324,8 @@ def create_common_order(char_alphabets):
     result = "".join(genFinalAllowableChars())
     
     return result
-    
-            
+
+
             
         
 def main():

@@ -17,12 +17,18 @@ def to_hex_str(value):
         value //= 16
     return "".join(HEX_DIGITS[item] for item in result)
 
-def gen_printable_unicode_16(src_gen=None):
+def gen_printable_unicode(src_gen=None, hex_length=4):
+    assert hex_length in [4, 8]
+    prefixChar = {4:"u", 8:"U"}[hex_length]
     if src_gen is None:
-        src_gen = range(0, 16**4)
+        src_gen = range(0, 16**hex_length)
     for value in src_gen:
-        baseStr = to_hex_str(value).rjust(4, HEX_DIGITS[0])
-        char = eval("\"\\u" + baseStr + "\"")
+        baseStr = to_hex_str(value).rjust(hex_length, HEX_DIGITS[0])
+        try:
+            char = eval("\"\\" + prefixChar + baseStr + "\"")
+        except UnicodeError as ue:
+            print("unicode error caused by prefix {} and baseStr {}.".format(prefixChar, baseStr))
+            raise ue
         assert len(char) == 1
         if char.isprintable():
             yield char
