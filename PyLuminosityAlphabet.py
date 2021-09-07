@@ -13,18 +13,20 @@ from collections import namedtuple
 import pygame
 pygame.init()
 
-KEYBOARD_DIGITS = "0123456789"
-KEYBOARD_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-KEYBOARD_SYMBOLS = " `~!@#$%^&*()-_=+[{]}\\|\\;:'\",<.>/?"
-KEYBOARD_CHARS = KEYBOARD_DIGITS + KEYBOARD_LETTERS + KEYBOARD_SYMBOLS
+import Characters
 
-SPECIALS_BASH = ["$", "`", "*", "\"", "\\"]
+
 
 DEFAULT_FONT_PATH_STR = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
 
 
 TextElement = namedtuple("TextElement",["font_name","font_size","antialias","text","image","image_width","image_height","luminosity"])
+
+
+
+
+
 
 
 def get_color_luminosity_f(color):
@@ -40,11 +42,47 @@ def get_surface_luminosity_f(surface):
     
     
 def path_from_str(path_str):
-    font_path = pathlib.Path(font_path_text)
+    font_path = pathlib.Path(path_str)
     return font_path
     
 def make_font(path_str, size):
     return pygame.font.Font(path_from_str(path_str), size)
+    
+    
+def iter_include_exclude(include, exclude):
+    for item in include:
+        if item in exclude:
+            continue
+        yield item
+        
+        
+def filtered_for_uniform_density(src_gen, key_fun, segment_count):
+    ResultEntry = namedtuple("ResultEntry", ["rawKey", "value"])
+    def uniformityScore(key0, key1, key2):
+        assert key0 <= key1 <= key2
+        dists = [key1-key0, key2-key1]
+        if 0 in dists:
+            return 0
+        return min(dists)/max(dists)
+    result = [None for i in range(segment_count)]
+    for i,item in enumerate(src_gen):
+        itemRawKey = key_fun(item)
+        assert 0 <= itemRawKey < 1, "bad key_fun output for {} at src_gen index {}.".format(item,i)
+        itemSegIndex = int(round(itemRawKey * segment_count))
+        assert 0 <= itemSegIndex < segment_count
+        newEntry = ResultEntry(itemRawKey, item)
+        oldEntry = result[itemSegIndex] 
+        if oldEntry is not None:
+            leftRawKey = result[itemSegIndex-1].rawKey if (itemSegIndex-1 >= 0 and result[itemSegIndex-1] is not None) else 0.0
+            rightRawKey = result[itemSegIndex+1].rawKey if (itemSegIndex+1 < segment_count and result[itemSegIndex+1] is not None) else 1.0
+            oldUniformity = uniformityScore(leftRawKey, oldEntry.rawKey, rightRawKey)
+            newUniformity = uniformityScore(leftRawKey, newEntry.rawKey, rightRawKey)
+            if newUniformity > oldUniformity:
+                result[itemSegIndex] = newEntry
+        else:
+            result[itemSegIndex] = newEntry
+    return [item.value for item in result if item is not None]
+    
     
 
 class FontProfile:
@@ -56,6 +94,10 @@ class FontProfile:
     def get_char_picture(self, char):
         result = self.font.render(char, self._antialias, (255,255,255), (0,0,0))
         return result
+        
+    def get_char_element(self, char):        
+        picture = self.get_char_picture(char)
+        return TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_luminosity_f(picture)) 
     
     """
     def make_char_picture(self, char):
@@ -63,27 +105,26 @@ class FontProfile:
         
     def make_char_pictures(self, include=KEYBOARD_CHARS, exclude=""):
         self.char_pictures = dict()
-        for char in include:
-            if char in exclude:
-                continue
+        for char in iter_include_exclude(include, exclude):
             self.make_char_picture(char)
     """
     """
     def _gen_char_pictures(self, include=KEYBOARD_CHARS, exclude="")
-        for char in include:
-            if char in exclude:
-                continue
+        for char in iter_include_exclude(include, exclude):
             yield char, self.get_char_picture(
             """
             
-    def get_alphabet_elements(self, include=KEYBOARD_CHARS, exclude=SPECIALS_BASH, force_monospace=False):
-        result = []
-        for char in include:
-            if char in exclude:
-                continue
-            picture = self.get_char_picture(char)
-            newProfileItem = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_luminosity_f(picture))
-            result.append(newProfileItem)
+    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIALS_BASH):
+        """
+        include may be a generator.
+        exclude should be a set for best performance.
+        """
+        for char in iter_include_exclude(include, exclude):
+            newElement = self.get_char_element(char)
+            yield newElement
+            
+    def get_alphabet_elements(self, force_monospace=False, **other_kwargs):
+        result = [item for item in self.gen_elements(**other_kwargs)]
         #filter for monospace rulebreakers:
         if force_monospace:
             median_width = sorted(elem.image_width for elem in result)[len(result)//2]
@@ -97,6 +138,107 @@ class FontProfile:
     def get_alphabet_str(self, **kwargs):
         return "".join(self.get_alphabet_chars(**kwargs))
     
+
+
+def create_common_order(char_alphabets):
+    """
+    when reconciling alphabets:
+        -each ordered pair of letters is either allowed or disallowed.
+        -each letter has a cost of letters that can't be used if the letter is used.
+        -if there are two groups of _compatible letters_, group A and group B, and they are the same size, and the combined cost of group A letters is smaller than the combined cost of group B letters, then group A should be preferred over group B.
+    Certain Rules:
+        c1. if two letters each only have the other as a cost, they can be exluded from further calculations, or one can be chosen at random.
+        c2 (done). if this letter has more than one cost letter, and this letter's cost letters each only have this letter as their cost, ban this letter.
+        c3. if two letters have costs that include each other and the other letters in their costs are all the same, they should be considered one letter until the choice between them is made, or in some other way, the fact that their cost can't really be 2 should be accounted for.
+        c4. if a letter's cost is larger than the union of the costs of all other letters, it should be banned.
+        cFinal. all previous rules should be applied again whenever any change occurs.
+    Uncertain Rules:
+        u1. if this group of letters is self-compatible and each of its letters have the same cost letters, and the size of the cost is larger smaller than the size of the group, use the group.        
+    """
+    
+    firstCharAlphabet = char_alphabets[0]
+    otherCharAlphabets = char_alphabets[1:]
+    charCosts = dict()
+    for i1, char1 in enumerate(firstCharAlphabet[:-1]):
+        char1Cost = set()
+        for i2, char2 in enumerate(firstCharAlphabet[i1:]):
+            for otherCharAlphabet in otherCharAlphabets:
+                if otherCharAlphabet.index(char2) < otherCharAlphabet.index(char1):
+                    char1Cost.add(char2)
+                    break
+        charCosts[char1] = char1Cost
+        
+    bannedChars = set()
+    
+    def banChar(charToBan):
+        assert charToBan not in bannedChars
+        bannedChars.add(charToBan)
+        for costChar in charCosts[charToBan]:
+            charCosts[costChar].remove(charToBan)
+        del charCosts[charToBan]
+        
+    def applyRuleC2():
+        changeCount = 0
+        for baseCharI, baseChar in enumerate(firstCharAlphabet):
+            for costCharI, costChar in enumerate(charCosts[baseChar]):
+                if not len(charCosts[costChar]) == 1:
+                    #rule c2 can't ban baseChar.
+                    break
+                else:
+                    assert baseChar in charCosts[costChar]
+            else:
+                #rule c2 can ban baseChar.
+                changeCount += 1
+                banChar(baseChar)
+        return changeCount
+                
+    def applyRuleC4():
+        changeCount = 0
+        for baseChar in firstCharAlphabet:
+            if baseChar in bannedChars:
+                continue
+            #this set is built again every time because it is a simpler way to handle the body of this loop having banned chars.
+            #even if no other rules were present, this rule should be run again if it makes any changes.
+            othersSet = set(item for costSub in charCosts.values() for item in costSub if item not in charCosts[baseChar])
+            #othersSet = set(item for item in firstCharAlphabet if item not in bannedChars)
+            if len(charCosts[baseChar]) > len(othersSet):
+                #ban char
+                changeCount += 1
+                banChar(baseChar)
+        return changeCount
+            
+    def applyRuleCFinal():
+        while True:
+            if applyRuleC2() > 0:
+                continue
+            if applyRuleC4() > 0:
+                continue
+            return
+            
+    applyRuleCFinal()
+    
+    def genFinalAllowableChars():
+        for char in firstCharAlphabet:
+            if char in bannedChars:
+                continue
+            charCost = charCosts[char]
+            charCostSize = len(charCost)
+            if charCostSize == 0:
+                yield char
+                banChar(char)
+            elif charCostSize == 1:
+                yield char
+                banChar(char)
+                for i, costChar in enumerate(charCost):
+                    assert i == 0
+                    banChar(costChar)
+    
+    result = "".join(genFinalAllowableChars())
+    
+    return result
+    
+            
+            
         
 def main():
     while True:
