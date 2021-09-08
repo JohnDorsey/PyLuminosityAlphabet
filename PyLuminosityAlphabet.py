@@ -9,11 +9,15 @@ PyLuminosityAlphabet.py by John Dorsey.
 
 import pathlib
 from collections import namedtuple
+import itertools
+import time
+
 
 import pygame
 pygame.init()
 
 import Characters
+import Graphics
 
 
 
@@ -27,23 +31,36 @@ TextElement = namedtuple("TextElement",["font_name", "font_size", "antialias", "
 
 
 
-
-
-def get_color_luminosity_f(color):
+def validated_color(color):
     assert len(color) >= 3
     if not len(color) == 3:
         assert color[3] in [0, 255], "custom alpha not supported"
     color = color[:3]
-    return float(sum(color))/(3.0*256.0)
+    return color
     
-def get_surface_absolute_luminosity_f(surface):
+def luminosity_int_to_float(value):
+    return float(value)/(3.0*256.0)
+
+def get_color_luminosity_int(color):
+    color = validated_color(color)
+    return sum(color)
+    
+def get_color_luminosity_float(color):
+    return luminosity_int_to_float(get_color_luminosity_int(color))
+    
+    
+def get_surface_absolute_luminosity_int(surface):
     colorGen = (surface.get_at((x,y)) for y in range(surface.get_height()) for x in range(surface.get_width()))
-    return sum(get_color_luminosity_f(color) for color in colorGen)
+    return sum(get_color_luminosity_int(color) for color in colorGen)
     
-def get_surface_relative_luminosity_f(surface):
-    abs_lum_f = get_surface_absolute_luminosity_f(surface)
+def get_surface_absolute_luminosity_float(surface):
+    return luminosity_int_to_float(get_surface_absolute_luminosity_int(surface))
+    
+    
+def get_surface_relative_luminosity_float(surface):
+    abs_lum_int = get_surface_absolute_luminosity_int(surface)
     area = surface.get_height() * surface.get_width()
-    return abs_lum_f/float(area)
+    return luminosity_int_to_float(float(abs_lum_int)/float(area))
     
     
 def path_from_str(path_str):
@@ -89,9 +106,16 @@ def filtered_for_uniform_density(src_gen, key_fun, segment_count):
     return [item.value for item in result if item is not None]
     
     
+def gen_chunks_as_lists(thing, chunk_length):
+    i = 0
+    while i*chunk_length < len(thing):
+        yield thing[i*chunk_length:(i+1)*chunk_length]
+        i += 1
+    
+    
 
 class FontProfile:
-    def __init__(self, name, size, antialias, force_monospace, **other_kwargs):
+    def __init__(self, name, size, antialias=True, force_monospace=True, **other_kwargs):
         if name is None:
             name = DEFAULT_FONT_PATH_STR
         self._name, self._size = name, size
@@ -131,10 +155,16 @@ class FontProfile:
         result = self.font.render(char, self._antialias, (255,255,255), (0,0,0))
         return result
         
+    def get_multiline_text_picture(self, text):
+        surfacesToShow = [self.get_text_picture(line) for line in text.split("\n")]
+        print("get multiline text pic: sizes are " + str([item.get_size() for item in surfacesToShow]))
+        outputSurface = Graphics.arrange_horizontal_bar_surfaces(surfacesToShow)
+        return outputSurface
+        
         
     def get_char_element(self, char):
         picture = self.get_text_picture(char)
-        result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_f(picture), get_surface_relative_luminosity_f(picture)) 
+        result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_int(picture), get_surface_relative_luminosity_float(picture)) 
         return result
     """
     def make_char_picture(self, char):
@@ -183,25 +213,57 @@ class FontProfile:
         result.sort(key=(lambda item: item.absolute_luminosity))
         return result
         
-    
-    def graphical_preview(self, text):
+        
+        
+        
+    def get_preview_surface(self, text, column_width=None, column_header="", column_line_format="{content}", width=None, aspect_ratio=3.0):
+        if len(text) == 0:
+            return pygame.Surface((0,0))
         assert isinstance(text, str)
-        lineLength = int((len(text)+1)**0.5)
+        if width is None:
+            lineLength = int((len(text)**0.5)*aspect_ratio)
+        else:
+            lineLength = width
         lineCount = len(text)//lineLength + (1 if len(text)%lineLength>0 else 0)
         assert (lineCount-1)*lineLength < len(text)
-        wrappingText = "\n".join(text[i*lineLength:(i+1)*lineLength] for i in range(lineCount))
-        print(wrappingText)
-        surfacesToShow = [self.get_text_picture(line) for line in wrappingText.split("\n")]
-        lineHeightSum = sum(lineSurface.get_height() for lineSurface in surfacesToShow)
-        lineWidthMax = max(lineSurface.get_width() for lineSurface in surfacesToShow)
+        print("{} x {}.".format(lineLength, lineCount))
+        
+        if column_width is None:
+            wrappingText = "\n".join("".join(chunk) for chunk in gen_chunks_as_lists(text, lineLength))
+            result = self.get_multiline_text_picture(wrappingText)
+        else:
+            wrapColumnCount = lineLength // column_width
+            wrapColumns = [([] if column_header == "" else [column_header.replace("{column_index}", str(i))]) for i in range(wrapColumnCount)]
+            
+            chunksForColumns = [chunk for chunk in gen_chunks_as_lists(text, column_width)]
+            for columnToModify, chunkToAdd in itertools.zip_longest(itertools.cycle(wrapColumns), chunksForColumns):
+                if chunkToAdd is None:
+                    break
+                columnToModify.append(chunkToAdd)
+                
+            for wrapColumnIndex, wrapColumn in enumerate(wrapColumns):
+                wrapColumns[wrapColumnIndex] = "\n".join(
+                    column_line_format.replace(
+                        "{content}", "".join(wrapColumnLine)
+                    ).replace(
+                        "{line_number}", str(lineNumber)
+                    ) for lineNumber, wrapColumnLine in enumerate(wrapColumn)
+                )
+                
+            
+            wrapColumnSurfaces = [self.get_multiline_text_picture(wrapColumn) for wrapColumn in wrapColumns]
+            result = Graphics.arrange_vertical_bar_surfaces(wrapColumnSurfaces)
+        print(result.get_size())
+        return result
+            
+    
+    def preview(self, text, **kwargs):
+        outputSurface = self.get_preview_surface(text, **kwargs)
         try:
-            screen = pygame.display.set_mode((lineWidthMax, lineHeightSum))
-            assert isinstance(screen, pygame.Surface)
-            y = 0
-            for lineIndex, lineSurface in enumerate(surfacesToShow):
-                screen.blit(lineSurface, (0, y))
-                y += lineSurface.get_height()
+            screen = pygame.display.set_mode(outputSurface.get_size())
+            screen.blit(outputSurface, (0, 0))
             while True:
+                time.sleep(0.1)
                 pygame.display.flip()
                 for event in pygame.event.get():
                     #print(event)
