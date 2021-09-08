@@ -28,7 +28,16 @@ DEFAULT_FONT_PATH_STR = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 TextElement = namedtuple("TextElement",["font_name", "font_size", "antialias", "text", "image", "image_width", "image_height", "absolute_luminosity", "relative_luminosity"])
 
 
-
+def stall_pygame():
+    while True:
+        time.sleep(0.1)
+        pygame.display.flip()
+        for event in pygame.event.get():
+            #print(event)
+            #print(dir(event))
+            #print(event.type)
+            if event.type in [pygame.K_ESCAPE, pygame.KSCAN_ESCAPE, pygame.QUIT]:
+                break
 
 
 def validated_color(color):
@@ -111,7 +120,31 @@ def gen_chunks_as_lists(thing, chunk_length):
     while i*chunk_length < len(thing):
         yield thing[i*chunk_length:(i+1)*chunk_length]
         i += 1
-    
+        
+        
+def columnize_text(text, line_length, column_width=None, column_header="", column_line_format="{content}"):
+    if column_width is None:
+        wrappingText = "\n".join("".join(chunk) for chunk in gen_chunks_as_lists(text, line_length))
+        return [wrappingText]
+    else:
+        wrapColumnCount = line_length // column_width
+        wrapColumns = [([] if column_header == "" else [column_header.replace("{column_index}", str(i))]) for i in range(wrapColumnCount)]
+        
+        chunksForColumns = [chunk for chunk in gen_chunks_as_lists(text, column_width)]
+        for columnToModify, chunkToAdd in itertools.zip_longest(itertools.cycle(wrapColumns), chunksForColumns):
+            if chunkToAdd is None:
+                break
+            columnToModify.append(chunkToAdd)
+            
+        for wrapColumnIndex, wrapColumn in enumerate(wrapColumns):
+            wrapColumns[wrapColumnIndex] = "\n".join(
+                column_line_format.replace(
+                    "{content}", "".join(wrapColumnLine)
+                ).replace(
+                    "{line_number}", str(lineNumber)
+                ) for lineNumber, wrapColumnLine in enumerate(wrapColumn)
+            )
+        return wrapColumns
     
 
 class FontProfile:
@@ -155,9 +188,10 @@ class FontProfile:
         result = self.font.render(char, self._antialias, (255,255,255), (0,0,0))
         return result
         
+        
     def get_multiline_text_picture(self, text):
         surfacesToShow = [self.get_text_picture(line) for line in text.split("\n")]
-        print("get multiline text pic: sizes are " + str([item.get_size() for item in surfacesToShow]))
+        #print("get multiline text pic: sizes are " + str([item.get_size() for item in surfacesToShow]))
         outputSurface = Graphics.arrange_horizontal_bar_surfaces(surfacesToShow)
         return outputSurface
         
@@ -166,20 +200,7 @@ class FontProfile:
         picture = self.get_text_picture(char)
         result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_int(picture), get_surface_relative_luminosity_float(picture)) 
         return result
-    """
-    def make_char_picture(self, char):
-        self.char_pictures[char] = self.get_char_picture(char)
-        
-    def make_char_pictures(self, include=KEYBOARD_CHARS, exclude=""):
-        self.char_pictures = dict()
-        for char in iter_include_exclude(include, exclude):
-            self.make_char_picture(char)
-    """
-    """
-    def _gen_char_pictures(self, include=KEYBOARD_CHARS, exclude="")
-        for char in iter_include_exclude(include, exclude):
-            yield char, self.get_char_picture(
-            """
+
             
     def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIALS_BASH, ignore_force_monospace=False):
         """
@@ -214,9 +235,7 @@ class FontProfile:
         return result
         
         
-        
-        
-    def get_preview_surface(self, text, column_width=None, column_header="", column_line_format="{content}", width=None, aspect_ratio=3.0):
+    def get_preview_surface(self, text, width=None, aspect_ratio=3.0, **column_kwargs):
         if len(text) == 0:
             return pygame.Surface((0,0))
         assert isinstance(text, str)
@@ -226,34 +245,13 @@ class FontProfile:
             lineLength = width
         lineCount = len(text)//lineLength + (1 if len(text)%lineLength>0 else 0)
         assert (lineCount-1)*lineLength < len(text)
-        print("{} x {}.".format(lineLength, lineCount))
+        #print("{} x {}.".format(lineLength, lineCount))
         
-        if column_width is None:
-            wrappingText = "\n".join("".join(chunk) for chunk in gen_chunks_as_lists(text, lineLength))
-            result = self.get_multiline_text_picture(wrappingText)
-        else:
-            wrapColumnCount = lineLength // column_width
-            wrapColumns = [([] if column_header == "" else [column_header.replace("{column_index}", str(i))]) for i in range(wrapColumnCount)]
-            
-            chunksForColumns = [chunk for chunk in gen_chunks_as_lists(text, column_width)]
-            for columnToModify, chunkToAdd in itertools.zip_longest(itertools.cycle(wrapColumns), chunksForColumns):
-                if chunkToAdd is None:
-                    break
-                columnToModify.append(chunkToAdd)
-                
-            for wrapColumnIndex, wrapColumn in enumerate(wrapColumns):
-                wrapColumns[wrapColumnIndex] = "\n".join(
-                    column_line_format.replace(
-                        "{content}", "".join(wrapColumnLine)
-                    ).replace(
-                        "{line_number}", str(lineNumber)
-                    ) for lineNumber, wrapColumnLine in enumerate(wrapColumn)
-                )
-                
-            
-            wrapColumnSurfaces = [self.get_multiline_text_picture(wrapColumn) for wrapColumn in wrapColumns]
-            result = Graphics.arrange_vertical_bar_surfaces(wrapColumnSurfaces)
-        print(result.get_size())
+        wrapColumns = columnize_text(text, line_length=lineLength, **column_kwargs)
+        
+        wrapColumnSurfaces = [self.get_multiline_text_picture(wrapColumn) for wrapColumn in wrapColumns]
+        result = Graphics.arrange_vertical_bar_surfaces(wrapColumnSurfaces)
+        #print(result.get_size())
         return result
             
     
@@ -262,15 +260,7 @@ class FontProfile:
         try:
             screen = pygame.display.set_mode(outputSurface.get_size())
             screen.blit(outputSurface, (0, 0))
-            while True:
-                time.sleep(0.1)
-                pygame.display.flip()
-                for event in pygame.event.get():
-                    #print(event)
-                    #print(dir(event))
-                    #print(event.type)
-                    if event.type in [pygame.K_ESCAPE, pygame.KSCAN_ESCAPE, pygame.QUIT]:
-                        break
+            stall_pygame()
         finally:
             pygame.display.quit()
         
