@@ -17,6 +17,7 @@ import pygame
 pygame.init()
 
 import Characters
+from Characters import gen_chunks_as_lists
 import Graphics
 
 
@@ -114,12 +115,17 @@ def filtered_for_uniform_density(src_gen, key_fun, segment_count):
             result[itemSegIndex] = newEntry
     return [item.value for item in result if item is not None]
     
-    
-def gen_chunks_as_lists(thing, chunk_length):
-    i = 0
-    while i*chunk_length < len(thing):
-        yield thing[i*chunk_length:(i+1)*chunk_length]
-        i += 1
+
+        
+def filtered_elem_list_for_consistent_width(element_list):
+    if iter(element_list) is iter(element_list):
+        print("filtered_elem_list_for_consistent_width: warning: received a generator! it will be consumed.")
+        element_list = [item for item in element_list]
+    if len(element_list) == 0:
+        raise ValueError("element_list cannot be empty!")
+    median_width = sorted(elem.image_width for elem in element_list)[len(element_list)//2]
+    result = [item for item in element_list if item.image_width == median_width]
+    return result
         
         
 def columnize_text(text, line_length, column_width=None, column_header="", column_line_format="{content}"):
@@ -145,15 +151,23 @@ def columnize_text(text, line_length, column_width=None, column_header="", colum
                 ) for lineNumber, wrapColumnLine in enumerate(wrapColumn)
             )
         return wrapColumns
+        
+        
+class BadDrawError(ValueError):
+    """
+    raised when the char that was just drawn breaks the rules set by the FontProfile.
+    """
+    pass
     
 
 class FontProfile:
-    def __init__(self, name, size, antialias=True, force_monospace=True, **other_kwargs):
+    def __init__(self, name, size, antialias=True, force_monospace=True, screen_metrics=True, **other_kwargs):
         if name is None:
             name = DEFAULT_FONT_PATH_STR
         self._name, self._size = name, size
         self.font = make_font(name, size)
         self._antialias, self._force_monospace = antialias, force_monospace
+        self._screen_metrics = screen_metrics
         
         self._monospace_width = None
         if self._force_monospace:
@@ -167,25 +181,30 @@ class FontProfile:
     def prepare_monospace_filtration(self, test_chars=Characters.KEYBOARD_CHARS):
         #charPictureSizes = [(element.image_width, element.image_height) for element in self.gen_elements(include=test_chars)]
         test_elem_gen = self.gen_elements(include=test_chars, ignore_force_monospace=True)
-        element_list = self.filtered_elem_list_for_consistent_width(test_elem_gen)
+        element_list = filtered_elem_list_for_consistent_width(test_elem_gen)
         if len(element_list) != len(test_chars):
             print("FontProfile.prepare_monospace_filtration: not monospace! After filtering test_chars for chars of the median width, its size shrank from {} to {}.".format(len(test_chars), len(element_list)))
         self._monospace_width = element_list[0].image_width
         
-        
-    def filtered_elem_list_for_consistent_width(self, element_list):
-        if iter(element_list) is iter(element_list):
-            print("FontProfile.filtered_elem_list_for_consistent_width: warning: received a generator! it will be consumed.")
-            element_list = [item for item in element_list]
-        if len(element_list) == 0:
-            raise ValueError("element_list cannot be empty!")
-        median_width = sorted(elem.image_width for elem in element_list)[len(element_list)//2]
-        result = [item for item in element_list if item.image_width == median_width]
-        return result
+
         
         
-    def get_text_picture(self, char):
-        result = self.font.render(char, self._antialias, (255,255,255), (0,0,0))
+    def get_text_picture(self, text, ignore_force_monospace=False):
+        if self._screen_metrics:
+            #metrics = self.font.metrics(text)
+            for char in text: #works even if text is char.
+                assert len(char) == 1
+                charMetrics = self.font.metrics(char)[0]
+                charCode = ord(char)
+                if min(charMetrics) < 0:
+                    raise BadDrawError(f"{charCode=}, {charMetrics=}: had negative value.")
+                if charMetrics[1] != charMetrics[-1]:
+                    raise BadDrawError(f"{charCode=}, {charMetrics=}: advance did not equal max x offset.")
+        result = self.font.render(text, self._antialias, (255,255,255), (0,0,0))
+        if len(text) == 1:
+            if (not ignore_force_monospace) and self._force_monospace:
+                if result.get_width() != self._monospace_width:
+                    raise BadDrawError("does not match profile's monospace width.")
         return result
         
         
@@ -196,8 +215,8 @@ class FontProfile:
         return outputSurface
         
         
-    def get_char_element(self, char):
-        picture = self.get_text_picture(char)
+    def get_char_element(self, char, ignore_force_monospace=False):
+        picture = self.get_text_picture(char, ignore_force_monospace=ignore_force_monospace)
         result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_int(picture), get_surface_relative_luminosity_float(picture)) 
         return result
 
@@ -208,10 +227,10 @@ class FontProfile:
         exclude should be a set for best performance.
         """
         for char in iter_include_exclude(include, exclude):
-            newElement = self.get_char_element(char)
-            if (not ignore_force_monospace) and self._force_monospace:
-                if newElement.image_width != self._monospace_width:
-                    continue
+            try:
+                newElement = self.get_char_element(char, ignore_force_monospace=ignore_force_monospace)
+            except BadDrawError:
+                continue
             yield newElement
             
             
@@ -229,7 +248,7 @@ class FontProfile:
         if quick_force_monospace:
             if self._force_monospace:
                 print("{}: warning: using quick_force_monospace in combination with force_monospace is slow.".format(repr(self)))
-            result = self.filtered_elem_list_for_consistent_width(result)
+            result = filtered_elem_list_for_consistent_width(result)
             
         result.sort(key=(lambda item: item.absolute_luminosity))
         return result
