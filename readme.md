@@ -1,5 +1,15 @@
 
 
+Requires pygame
+
+This program internally renders characters into one image each, and uses these
+images to sort all of the characters by order of their actual luminosity.
+
+The resulting alphabets are ideal for their specified font, font size, and
+antialiasing setting.
+
+FontProfile excludes non-monospace characters by default.
+
 
 usage:
     
