@@ -18,6 +18,7 @@ pygame.init()
 
 import Characters
 from Characters import gen_chunks_as_lists
+from Colors import get_surface_absolute_luminosity_int, get_surface_relative_luminosity_float
 import Graphics
 
 
@@ -41,44 +42,17 @@ def stall_pygame():
                 break
 
 
-def validated_color(color):
-    assert len(color) >= 3
-    if not len(color) == 3:
-        assert color[3] in [0, 255], "custom alpha not supported"
-    color = color[:3]
-    return color
-    
-def luminosity_int_to_float(value):
-    return float(value)/(3.0*256.0)
-
-def get_color_luminosity_int(color):
-    color = validated_color(color)
-    return sum(color)
-    
-def get_color_luminosity_float(color):
-    return luminosity_int_to_float(get_color_luminosity_int(color))
-    
-    
-def get_surface_absolute_luminosity_int(surface):
-    colorGen = (surface.get_at((x,y)) for y in range(surface.get_height()) for x in range(surface.get_width()))
-    return sum(get_color_luminosity_int(color) for color in colorGen)
-    
-def get_surface_absolute_luminosity_float(surface):
-    return luminosity_int_to_float(get_surface_absolute_luminosity_int(surface))
-    
-    
-def get_surface_relative_luminosity_float(surface):
-    abs_lum_int = get_surface_absolute_luminosity_int(surface)
-    area = surface.get_height() * surface.get_width()
-    return luminosity_int_to_float(float(abs_lum_int)/float(area))
     
     
 def path_from_str(path_str):
     font_path = pathlib.Path(path_str)
     return font_path
     
+    
 def make_font(path_str, size):
     return pygame.font.Font(path_from_str(path_str), size)
+    
+    
     
     
 def iter_include_exclude(include, exclude):
@@ -153,6 +127,8 @@ def columnize_text(text, line_length, column_width=None, column_header="", colum
         return wrapColumns
         
         
+        
+        
 class BadDrawError(ValueError):
     """
     raised when the char that was just drawn breaks the rules set by the FontProfile.
@@ -217,11 +193,21 @@ class FontProfile:
         
     def get_char_element(self, char, ignore_force_monospace=False):
         picture = self.get_text_picture(char, ignore_force_monospace=ignore_force_monospace)
-        result = TextElement(self._name, self._size, self._antialias, char, picture, picture.get_width(), picture.get_height(), get_surface_absolute_luminosity_int(picture), get_surface_relative_luminosity_float(picture)) 
+        result = TextElement(
+            self._name,
+            self._size,
+            self._antialias,
+            char,
+            picture,
+            picture.get_width(),
+            picture.get_height(),
+            get_surface_absolute_luminosity_int(picture),
+            get_surface_relative_luminosity_float(picture),
+        ) 
         return result
 
             
-    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIALS_BASH, ignore_force_monospace=False):
+    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET, ignore_force_monospace=False):
         """
         include may be a generator.
         exclude should be a set for best performance.
@@ -298,7 +284,7 @@ class FontProfile:
         return "".join(self.get_alphabet_chars(**kwargs))
     
 
-
+#not fully tested!
 def create_common_order(char_alphabets):
     """
     when reconciling alphabets:
