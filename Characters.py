@@ -20,8 +20,11 @@ KEYBOARD_CHARS = KEYBOARD_DIGITS + KEYBOARD_LETTERS + KEYBOARD_SYMBOLS
 
 SPECIAL_CHARS_DICT = {"BASH":["$", "`", "*", "\"", "\\"]}
 
-SNEAKY_ORDS_DICT = {"GNOME_XTERM": [789, 829, 1557, 1612, 3785, 825, 781, 1619]}
+SNEAKY_ORDS_DICT = {"BASH_GNOME_XTERM":[32, 831, 1569, 1591, 1645, 64427, 65166, 65172, 65217, 65222, 65258], "GNOME_XTERM": [789, 829, 1557, 1612, 3785, 825, 781, 1619]}
 
+
+SPECIAL_CHAR_SET = {char for sublist in SPECIAL_CHARS_DICT.values() for char in sublist}
+SNEAKY_ORD_SET = {num for sublist in SNEAKY_ORDS_DICT.values() for num in sublist}
 
 
 HEX_DIGITS = "0123456789abcdef"
@@ -74,7 +77,7 @@ def to_hex_str(value):
         value //= 16
     return "".join(HEX_DIGITS[item] for item in result)
 
-def gen_printable_unicode(src_gen=None, hex_length=4):
+def gen_unicode_chars(src_gen=None, hex_length=4):
     assert hex_length in [4, 8]
     prefixChar = {4:"u", 8:"U"}[hex_length]
     if src_gen is None:
@@ -87,26 +90,30 @@ def gen_printable_unicode(src_gen=None, hex_length=4):
             print("unicode error caused by prefix {} and baseStr {}.".format(prefixChar, baseStr))
             raise ue
         assert len(char) == 1
-        if char.isprintable():
-            yield char
-            
-def gen_wellbehaved_unicode(**kwargs):
-    specialCharSet = {char for sublist in SPECIAL_CHARS_DICT.values() for char in sublist}
-    sneakyOrdSet = {num for sublist in SNEAKY_ORDS_DICT.values() for num in sublist}
-    for char in gen_printable_unicode(**kwargs):
-        if unicodedata.category(char) in {"Cc", "Cf"}:
-            continue
-        if emoji.emoji_count(char) > 0:
-            continue
-        if char in specialCharSet:
-            continue
-        if ord(char) in sneakyOrdSet:
-            continue
         yield char
+            
+def is_char_wellbehaved(char):
+    assert len(char) == 1
+    if not char.isprintable():
+        return False
+    if unicodedata.category(char) in {"Cc", "Cf"}:
+        return False
+    if emoji.emoji_count(char) > 0:
+        return False
+    if char in SPECIAL_CHAR_SET:
+        return False
+    if ord(char) in SNEAKY_ORD_SET:
+        return False
+    return True
+            
+def gen_wellbehaved_unicode_chars(**kwargs):
+    for char in gen_unicode_chars(**kwargs):
+        if is_char_wellbehaved(char):
+            yield char
         
         
             
-
+"""
 def annotate_characters(src_gen):
     print("this method returns a dictionary. Make sure it is stored somewhere.")
     result = dict()
@@ -114,6 +121,7 @@ def annotate_characters(src_gen):
         userInput = input("index {}: value {}:".format(i, ord(char)) + char + char + char + char + char + ">")
         result[char] = userInput
     return result
+"""
             
             
 def identify_safe_chars(src_list, goods=None, bads=None, width=32, height=24, doublespace=False, reps=1):
@@ -195,10 +203,7 @@ def identify_safe_chars(src_list, goods=None, bads=None, width=32, height=24, do
     return result
             
 
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
