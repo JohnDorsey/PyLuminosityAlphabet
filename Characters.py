@@ -16,18 +16,47 @@ KEYBOARD_LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 KEYBOARD_SYMBOLS = " `~!@#$%^&*()-_=+[{]}\\|\\;:'\",<.>/?"
 KEYBOARD_CHARS = KEYBOARD_DIGITS + KEYBOARD_LETTERS + KEYBOARD_SYMBOLS
 
-
-
 SPECIAL_CHARS_DICT = {"BASH":["$", "`", "*", "\"", "\\"]}
-
 SNEAKY_ORDS_DICT = {"BASH_GNOME_XTERM":[32, 831, 1569, 1591, 1645, 64427, 65166, 65172, 65217, 65222, 65258], "GNOME_XTERM": [789, 829, 1557, 1612, 3785, 825, 781, 1619]}
-
-
 SPECIAL_CHAR_SET = {char for sublist in SPECIAL_CHARS_DICT.values() for char in sublist}
 SNEAKY_ORD_SET = {num for sublist in SNEAKY_ORDS_DICT.values() for num in sublist}
 
+POORLY_BEHAVED_CATEGORIES = {"Cc", "Cf", "Mn", "Mc", "Me"}
 
 HEX_DIGITS = "0123456789abcdef"
+
+UNICODE_CATEGORY_LONG_NAMES = {
+    "Lu":"Letter, uppercase",
+    "Ll":"Letter, lowercase",
+    "Lt":"Letter, titlecase",
+    "Lm":"Letter, modifier",
+    "Lo":"Letter, other",
+    "Mn":"Mark, nonspacing",
+    "Mc":"Mark, spacing combining",
+    "Me":"Mark, enclosing",
+    "Nd":"Number, decimal digit",
+    "Nl":"Number, letter",
+    "No":"Number, other",
+    "Pc":"Punctuation, connector",
+    "Pd":"Punctuation, dash",
+    "Ps":"Punctuation, open",
+    "Pe":"Punctuation, close",
+    "Pi":"Punctuation, initial quote",
+    "Pf":"Punctuation, final quote",
+    "Po":"Punctuation, other",
+    "Sm":"Symbol, math",
+    "Sc":"Symbol, currency",
+    "Sk":"Symbol, modifier",
+    "So":"Symbol, other",
+    "Zs":"Separator, space",
+    "Zl":"Separator, line",
+    "Zp":"Separator, paragraph",
+    "Cc":"Other, control",
+    "Cf":"Other, format",
+    "Cs":"Other, surrogate",
+    "Co":"Other, private use",
+    "Cn":"Other, not assigned",
+}
 
 
 
@@ -92,11 +121,11 @@ def gen_unicode_chars(src_gen=None, hex_length=4):
         assert len(char) == 1
         yield char
             
-def is_char_wellbehaved(char):
+def char_is_wellbehaved(char):
     assert len(char) == 1
     if not char.isprintable():
         return False
-    if unicodedata.category(char) in {"Cc", "Cf"}:
+    if unicodedata.category(char) in POORLY_BEHAVED_CATEGORIES:
         return False
     if emoji.emoji_count(char) > 0:
         return False
@@ -108,7 +137,12 @@ def is_char_wellbehaved(char):
             
 def gen_wellbehaved_unicode_chars(**kwargs):
     for char in gen_unicode_chars(**kwargs):
-        if is_char_wellbehaved(char):
+        if char_is_wellbehaved(char):
+            yield char
+            
+def gen_unicode_chars_in_category(category, **kwargs):
+    for char in gen_unicode_chars(**kwargs):
+        if unicodedata.category(char) == category:
             yield char
         
         
