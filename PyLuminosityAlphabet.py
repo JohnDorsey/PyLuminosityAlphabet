@@ -108,13 +108,14 @@ class UnusableCharError(ValueError):
     
     
 def validate_metrics(font, char):
+    # https://www.pygame.org/docs/ref/font.html#pygame.font.Font.metrics
     assert len(char) == 1
     charCode = ord(char)
-    charMetrics = self.font.metrics(char)[0]
+    charMetrics = font.metrics(char)[0]
     if min(charMetrics) < 0:
-        raise ValidationFailure("{}, {}: had negative value.".format(charCode, charMetrics))
+        raise ValidationFailure("char code {}, metrics {}: had negative value.".format(charCode, charMetrics))
     if charMetrics[1] != charMetrics[-1]:
-        raise ValidationFailure("{}, {}: advance did not equal max x offset.".format(charCode, charMetrics))
+        raise ValidationFailure("char code {}, metrics {}: advance did not equal max x offset.".format(charCode, charMetrics))
     
     
     
@@ -156,11 +157,14 @@ class MonospaceFont(FullFont):
     # class NotMonospace:
     #     pass
         
+        
     def __init__(self, full_font, test_chars=None):
         assert test_chars is not None
+        self.test_chars = test_chars
         self.full_font = full_font
         self.monospace_width = None
-        self._prepare_filtration(test_chars)
+        self._prepare_filtration(self.test_chars)
+        
         
     def _prepare_filtration(self, test_chars):
         assert self.monospace_width is None
@@ -171,8 +175,10 @@ class MonospaceFont(FullFont):
         
         self.monospace_width = element_list[0].image_width
         
+        
     def __getattr__(self, name):
         return getattr(self.full_font, name)
+        
         
     def render_char(self, char):
         assert len(char) == 1
@@ -182,7 +188,14 @@ class MonospaceFont(FullFont):
         else:
             return result
         
-    
+        
+    def render_error_char(self):
+        template = self.render_char(self.test_chars[0])
+        for y in range(template.get_height()):
+            for x in range(template.get_width()):
+                color = ((0 if ((x+y)%2==0) else 255), 0, 0)
+                template.set_at((x,y), color)
+        return template
     
     
 
@@ -267,7 +280,7 @@ class BadDrawError(ValueError):
     
 
 class FontProfile:
-    def __init__(self, name, size, antialias=True, force_monospace=True, screen_metrics=True, test_chars=Characters.KEYBOARD_CHARS):
+    def __init__(self, name, size, antialias=True, force_monospace=True, screen_metrics=False, test_chars=Characters.KEYBOARD_CHARS):
         if name is None:
             name = DEFAULT_FONT_PATH_STR
         self._name, self._size = name, size
@@ -286,17 +299,24 @@ class FontProfile:
     def render_char(self, char):
         assert len(char) == 1
         if self._screen_metrics:
-            validate_metrics(self.font, char)
+            try:
+                validate_metrics(self.font, char)
+            except ValidationFailure as vf:
+                raise UnusableCharError("while screening metrics : {}.".format(vf))
         result = self.font.render_char(char)
-        if result == MonospaceFont.NotMonospace:
-            raise BadDrawError("char is not monospace.")
         assert isinstance(result, pygame.Surface)
         return result
         
         
     def render_line(self, text):
         assert "\n" not in text
-        surfacesToCombine = [self.render_char(char) for char in text]
+        surfacesToCombine = []
+        for char in text:
+            try:
+                currentSurface = self.render_char(char)
+            except UnusableCharError:
+                currentSurface = self.font.render_error_char() # self.font should be monospace if this error is ever encountered anyway.
+            surfacesToCombine.append(currentSurface)
         outputSurface = Graphics.arrange_vertical_bar_surfaces(surfacesToCombine)
         return outputSurface
         
@@ -338,7 +358,7 @@ class FontProfile:
         return result
         
         
-    def get_preview_surface(self, text, width=None, aspect_ratio=3.0, **column_kwargs):
+    def get_preview_surface(self, text, width=None, aspect_ratio=2, **column_kwargs):
         if len(text) == 0:
             return pygame.Surface((0,0))
         assert isinstance(text, str)
@@ -352,7 +372,7 @@ class FontProfile:
         
         wrapColumns = columnize_text(text, line_length=lineLength, **column_kwargs)
         
-        wrapColumnSurfaces = [self.get_multiline_text_picture(wrapColumn) for wrapColumn in wrapColumns]
+        wrapColumnSurfaces = [self.render_lines(wrapColumn) for wrapColumn in wrapColumns]
         result = Graphics.arrange_vertical_bar_surfaces(wrapColumnSurfaces)
         #print(result.get_size())
         return result
