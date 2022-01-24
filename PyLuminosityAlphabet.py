@@ -43,12 +43,61 @@ def stall_pygame():
 def assert_not_generator(input_seq):
     assert iter(input_seq) is not iter(input_seq), "received a generator!"
 
+
 def iter_include_exclude(include, exclude):
     for item in include:
         if item in exclude:
             continue
         yield item
         
+        
+def gen_deduped(input_seq, key_fun=(lambda x: x)):
+    historySet = set()
+    for item in input_seq:
+        itemKey = key_fun(item)
+        if itemKey in historySet:
+            continue
+        else:
+            historySet.add(itemKey)
+            yield item
+        
+        
+def surface_to_tuple_list_list(surf):
+    # this is necessary because two identical pygame surfaces are not equal.
+    result = []
+    for y in range(surf.get_height()):
+        for x in range(surf.get_width()):
+            color = surf.get_at((x,y))
+            assert len(color) == 4
+            currentTuple = tuple(color[i] for i in range(4)) # pygame colors are not iterable.
+            result.append(currentTuple)
+    return result
+    
+def iter_flatly(data):
+    for item in data:
+        if hasattr(item, "__iter__"):
+            for subItem in iter_flatly(item):
+                yield subItem
+        else:
+            assert not hasattr(item, "__len__"), (item, type(item))
+            yield item
+            
+assert list(iter_flatly([[1,2],[3,4],(5,),(6,7)])) == [1,2,3,4,5,6,7]
+assert list(iter_flatly([[(1,2)],[(3,),(),4],((5,),(6,7))])) == [1,2,3,4,5,6,7]
+            
+class HashableList(list):
+    def __init__(self, data):
+        #print("init")
+        list.__init__(self, data)
+        #return self
+    def __hash__(self):
+        result = 0
+        for item in self:
+            result = hash(result + hash(item))
+        return result
+        
+    def __repr__(self):
+        return "HashableList({})".format(list.__repr__(self))
 
 TextElement = namedtuple("TextElement",["font_name", "font_size", "antialias", "text", "image", "image_width", "image_height", "absolute_luminosity", "relative_luminosity"])
 
@@ -331,10 +380,15 @@ class FontProfile:
         return self.font.char_to_element(char)
 
             
-    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET):
+    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET, visually_dedupe=False):
         """
         include may be a generator. exclude should be a set for best performance.
         """
+        if visually_dedupe:
+            raise NotImplementedError("not ready yet, currently excludes all items.")
+            keyFun = (lambda elem: HashableList(iter_flatly(surface_to_tuple_list_list(elem.picture))))
+            return gen_deduped(self.gen_elements(include=include, exclude=exclude, visually_dedupe=False), key_fun=keyFun)
+        
         for char in iter_include_exclude(include, exclude):
             try:
                 newElement = self.char_to_element(char)
@@ -379,6 +433,9 @@ class FontProfile:
             
     
     def preview(self, text, **kwargs):
+        if len(text) == 0:
+            print("no text to preview.")
+            return
         outputSurface = self.get_preview_surface(text, **kwargs)
         try:
             screen = pygame.display.set_mode(outputSurface.get_size())
