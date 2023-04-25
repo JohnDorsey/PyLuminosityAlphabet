@@ -61,6 +61,7 @@ UNICODE_CATEGORY_LONG_NAMES = {
 
 
 def gen_chunks_as_lists(thing, chunk_length):
+    raise NotImplementedError("this function should be replaced with a better version.")
     i = 0
     while i*chunk_length < len(thing):
         yield thing[i*chunk_length:(i+1)*chunk_length]
