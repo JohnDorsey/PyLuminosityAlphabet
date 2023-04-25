@@ -210,11 +210,15 @@ class MonospaceFont(FullFont):
         
     def __init__(self, full_font, test_chars=None):
         assert test_chars is not None
-        self.test_chars = test_chars
+        self.test_chars = list(iter(test_chars))
         self.full_font = full_font
         self.monospace_width = None
         self._prepare_filtration(self.test_chars)
-        
+    
+    """
+    def __repr__(self):
+        return f"MonospaceFont({self.full_font}, test_chars={self.test_chars!r})"
+    """
         
     def _prepare_filtration(self, test_chars):
         assert self.monospace_width is None
@@ -224,6 +228,8 @@ class MonospaceFont(FullFont):
             print("MonospaceFont._prepare_filtration: not monospace! After filtering test_chars for chars of the median width, its size shrank from {} to {}.".format(len(test_chars), len(element_list)))
         
         self.monospace_width = element_list[0].image_width
+        if test_elem_list[0].image_width != self.monospace_width:
+            raise AssertionError("MonospaceFont._prepare_filtration: first test char is not of the median width!")
         
         
     def __getattr__(self, name):
@@ -338,9 +344,12 @@ class FontProfile:
         self._force_monospace = force_monospace
         self._screen_metrics = screen_metrics
         
-        self.font = FullFont(name, size, antialias)
+        fullFont = FullFont(name, size, antialias)
         if self._force_monospace:
-            self.font = MonospaceFont(self.font, test_chars=test_chars)
+            self.font = MonospaceFont(fullFont, test_chars=test_chars)
+        else:
+            self.font = fullFont
+        
         
     def __repr__(self):
         return "FontProfile(name={}, size={}, antialias={}, force_monospace={}, screen_metrics={})".format(self._name, self._size, self._antialias, self._force_monospace, self._screen_metrics)
@@ -391,6 +400,7 @@ class FontProfile:
             except UnusableCharError:
                 continue
             yield newElement
+            
             
     def gen_elements(self, visually_dedupe=False, **other_kwargs):
         elementIterator = self._gen_elements(**other_kwargs)

@@ -15,6 +15,9 @@ usage:
     
     import PyLuminosityAlphabet as pla
     
-    fontProfile = pla.FontProfile(<Full path of target font>, <font size>)
+    fontProfile = pla.FontProfile(<full path of target font>, <font size>)
     
-    fontProfile.get_alphabet_str()
+    alphabet = fontProfile.get_alphabet_str()
+    
+    print(alphabet)
+    fontProfile.preview(alphabet)
