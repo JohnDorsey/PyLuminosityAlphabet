@@ -381,21 +381,27 @@ class FontProfile:
         return self.font.char_to_element(char)
 
             
-    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET, visually_dedupe=False) -> Iterator[TextElement]:
+    def _gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET) -> Iterator[TextElement]:
         """
         include may be a generator. exclude should be a set for best performance.
         """
-        if visually_dedupe:
-            raise NotImplementedError("not ready yet, currently excludes all items.")
-            keyFun = (lambda elem: HashableList(iter_flatly(surface_to_tuple_list_list(elem.picture))))
-            return gen_deduped(self.gen_elements(include=include, exclude=exclude, visually_dedupe=False), key_fun=keyFun)
-        
         for char in iter_include_exclude(include, exclude):
             try:
                 newElement = self.char_to_element(char)
             except UnusableCharError:
                 continue
             yield newElement
+            
+    def gen_elements(self, visually_dedupe=False, **other_kwargs):
+        elementIterator = self._gen_elements(**other_kwargs)
+    
+        if visually_dedupe:
+            # raise NotImplementedError("not ready yet, currently excludes all items.")
+            keyFun = (lambda elem: HashableList(iter_flatly(surface_to_tuple_list_list(elem.image))))
+            return gen_deduped(elementIterator, key_fun=keyFun)
+        else:
+            return elementIterator
+        
             
             
     def get_alphabet_elements(self, max_segment_count=None, **other_kwargs) -> List[TextElement]:
