@@ -11,6 +11,7 @@ import pathlib
 from collections import namedtuple
 import itertools
 import time
+from typing import Iterable, Iterator, List, NoReturn
 
 
 import pygame
@@ -106,8 +107,7 @@ TextElement = namedtuple("TextElement",["font_name", "font_size", "antialias", "
 
 
 def path_from_str(path_str):
-    font_path = pathlib.Path(path_str)
-    return font_path
+    return pathlib.Path(path_str)
 
 def make_pygame_font(path_str, size):
     return pygame.font.Font(path_from_str(path_str), size)
@@ -125,7 +125,7 @@ def median_nosub(input_seq):
     return storage[len(storage)//2]
         
         
-def gen_elems_with_exact_width(elems, width):
+def gen_elems_with_exact_width(elems: Iterable[TextElement], width: int) -> Iterator[TextElement]:
     for elem in elems:
         if elem.image_width == width:
             yield elem
@@ -133,13 +133,13 @@ def gen_elems_with_exact_width(elems, width):
             continue
             
             
-def filtered_elem_list_for_exact_width(element_list, width):
+def filtered_elem_list_for_exact_width(element_list: Iterable[TextElement], width) -> List[TextElement]:
     assert_not_generator(element_list)
     result = list(gen_elems_with_exact_width(element_list, width))
     return result
         
         
-def filtered_elem_list_for_consistent_width(element_list):
+def filtered_elem_list_for_consistent_width(element_list: Iterable[TextElement]) -> List[TextElement]:
     assert_not_generator(element_list)
     if len(element_list) == 0:
         raise ValueError("element_list cannot be empty!")
@@ -156,7 +156,8 @@ class UnusableCharError(ValueError):
     pass
     
     
-def validate_metrics(font, char):
+def validate_metrics(font, char) -> NoReturn:
+    # verify that the character is not negative-width, and that its advance and offset are equal (it is not weird). 
     # https://www.pygame.org/docs/ref/font.html#pygame.font.Font.metrics
     assert len(char) == 1
     charCode = ord(char)
@@ -183,7 +184,7 @@ class FullFont:
     def metrics(self, text):
         return self.pygame_font.metrics(text)
         
-    def char_to_element(self, char):
+    def char_to_element(self, char) -> TextElement:
         assert len(char) == 1
         picture = self.render_char(char)
         result = TextElement(
@@ -345,7 +346,7 @@ class FontProfile:
         return "FontProfile(name={}, size={}, antialias={}, force_monospace={}, screen_metrics={})".format(self._name, self._size, self._antialias, self._force_monospace, self._screen_metrics)
         
         
-    def render_char(self, char):
+    def render_char(self, char) -> pygame.Surface:
         assert len(char) == 1
         if self._screen_metrics:
             try:
@@ -357,7 +358,7 @@ class FontProfile:
         return result
         
         
-    def render_line(self, text):
+    def render_line(self, text) -> pygame.Surface:
         assert "\n" not in text
         surfacesToCombine = []
         for char in text:
@@ -366,21 +367,21 @@ class FontProfile:
             except UnusableCharError:
                 currentSurface = self.font.render_error_char() # self.font should be monospace if this error is ever encountered anyway.
             surfacesToCombine.append(currentSurface)
-        outputSurface = Graphics.arrange_vertical_bar_surfaces(surfacesToCombine)
+        outputSurface = Graphics.join_surfaces_horizontally(surfacesToCombine, assure_uniform=False) # even in monospace fonts, some characters are taller than others, so don't assure uniform.
         return outputSurface
         
         
-    def render_lines(self, text):
+    def render_lines(self, text) -> pygame.Surface:
         surfacesToCombine = [self.render_line(line) for line in text.split("\n")]
-        outputSurface = Graphics.arrange_horizontal_bar_surfaces(surfacesToCombine)
+        outputSurface = Graphics.join_surfaces_vertically(surfacesToCombine, assure_uniform=False) # some lines may have fewer chars than others, so don't assure uniform.
         return outputSurface
         
         
-    def char_to_element(self, char):
+    def char_to_element(self, char) -> TextElement:
         return self.font.char_to_element(char)
 
             
-    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET, visually_dedupe=False):
+    def gen_elements(self, include=Characters.KEYBOARD_CHARS, exclude=Characters.SPECIAL_CHAR_SET, visually_dedupe=False) -> Iterator[TextElement]:
         """
         include may be a generator. exclude should be a set for best performance.
         """
@@ -397,7 +398,7 @@ class FontProfile:
             yield newElement
             
             
-    def get_alphabet_elements(self, max_segment_count=None, **other_kwargs):
+    def get_alphabet_elements(self, max_segment_count=None, **other_kwargs) -> List[TextElement]:
         """
         Create a list of elements representing characters in a luminosity alphabet.
         max_segment_count - if set, this filters elements for uniform density, dividing the space between 0.0 inclusive and 1.0 exclusive into segments and keeping a maximum of one character per segment. Good for reducing memory usage when processing thousands or millions of characters.
@@ -412,7 +413,7 @@ class FontProfile:
         return result
         
         
-    def get_preview_surface(self, text, width=None, aspect_ratio=2, **column_kwargs):
+    def get_preview_surface(self, text, width=None, aspect_ratio=2, **column_kwargs) -> pygame.Surface:
         if len(text) == 0:
             return pygame.Surface((0,0))
         assert isinstance(text, str)
@@ -427,7 +428,7 @@ class FontProfile:
         wrapColumns = columnize_text(text, line_length=lineLength, **column_kwargs)
         
         wrapColumnSurfaces = [self.render_lines(wrapColumn) for wrapColumn in wrapColumns]
-        result = Graphics.arrange_vertical_bar_surfaces(wrapColumnSurfaces)
+        result = Graphics.join_surfaces_horizontally(wrapColumnSurfaces)
         #print(result.get_size())
         return result
             
